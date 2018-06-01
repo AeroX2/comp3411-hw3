@@ -25,6 +25,7 @@ class State(Enum):
     GOTO_KEY = auto()
     GOTO_AXE = auto()
     GO_HOME = auto()
+    PANIC = auto()
 
 class Direction(Enum):
     NORTH = 0
@@ -82,6 +83,8 @@ class Player:
     direction = Direction.NORTH
     has_raft = False
     has_key = False
+    has_axe = False
+    on_water = False
 
     def left(self):
         self.direction = Direction.left(self.direction)
@@ -89,7 +92,7 @@ class Player:
     def right(self):
         self.direction = Direction.right(self.direction)
 
-    def forward(self):
+    def forward(self, grid):
         if (self.direction == Direction.NORTH):
             self.y -= 1
         elif (self.direction == Direction.EAST):
@@ -98,6 +101,12 @@ class Player:
             self.y += 1
         elif (self.direction == Direction.WEST):
             self.x -= 1
+
+        if (grid[self.y][self.x] == '~'):
+            self.on_water = True
+        elif (self.on_water):
+            self.has_raft = False
+            self.on_water = False
 
 # Declaring visible grid to agent
 view = [['' for _ in range(5)] for _ in range(5)]
@@ -139,7 +148,11 @@ def rotate_left(grid):
 
 #Use BFS to find the shortest path
 def path_find(target):
-    path = path_find_full(target)
+    accepted = [' ','a','k','o']
+    if (player.has_raft):
+        accepted.append('~')
+
+    path = path_find_full(target,accepted)
     if (path is None):
         return None
     return list(map(lambda x: x[0], path))
@@ -166,7 +179,14 @@ def path_find_full(target,accepted=[' ','a','k','o']):
 
             cell = grid[new_pos[1]][new_pos[0]]
             if (cell in accepted):
+
+                #Increase the cost if not an empty spot
+                #Encourage the player to take the easiest route
                 cost = path[1]+1 if cell != ' ' else path[1]
+
+                #If the player has a raft, try not to go back on land
+                cost += 1 if cell == ' ' and player.has_raft else 0
+
                 new_path = (path[0][:]+[(new_pos,cell)],cost)
                 queue.append(new_path)
 
@@ -175,7 +195,7 @@ def path_find_full(target,accepted=[' ','a','k','o']):
 
 
 #Convert a path to a command list
-def path_to_commands(path, player):
+def path_to_commands(path, player, target):
     translation = {
         (0,-1): Direction.NORTH,
         (0,1): Direction.SOUTH,
@@ -184,8 +204,13 @@ def path_to_commands(path, player):
     }
 
     current_direction = player.direction
-
     commands = ''
+
+    raw_direction = (target[0]-player.x, target[1]-player.y)
+    if (raw_direction in translation):
+        direction = translation[raw_direction]
+        commands += Direction.difference(current_direction, direction)
+
     for i,pos in enumerate(path[:-1],1):
         raw_direction = (path[i][0]-path[i-1][0],path[i][1]-path[i-1][1])
         direction = translation[raw_direction]
@@ -197,6 +222,8 @@ def path_to_commands(path, player):
     return commands
 
 def explore():
+    print("Exploring")
+
     treasure_coord = find_item(grid,'$')
     if (treasure_coord is not None):
         if (path_find(treasure_coord) is not None):
@@ -218,12 +245,15 @@ def explore():
     for coord in unknowns:
         path_list = path_find(coord)
         if (path_list is not None):
-            return path_to_commands(path_list,player),state
+            return path_to_commands(path_list,player,coord),state
 
     #Check if we can reach the treasure at all
     path = path_find_full(treasure_coord,accepted=[' ','T','-','~','a','k','o'])
     if (path is not None):
         obstacles = filter(lambda x: x != ' ', map(lambda x: x[1], path))
+        obstacles = list(filter(lambda x: not (x == '~' and player.has_raft), obstacles))
+        #print(obstacles)
+
         first_obstacle = obstacles[0]
         if (first_obstacle == '-'):
             return None,State.GOTO_KEY
@@ -232,23 +262,63 @@ def explore():
     return None,State.GOTO_KEY
 
 def treasure():
+    print("Treasuring")
+
     coord = find_item(grid,'$')
     if (coord is None):
         return None,State.GO_HOME
 
     path_list = path_find(coord)
-    return path_to_commands(path_list, player)+'F',state
+    return path_to_commands(path_list, player,coord)+'F',state
 
 def key():
-    pass
+    print("Keying")
+
+    coord = find_item(grid,'k')
+    if (coord is None and not player.has_key):
+        return None,State.GOTO_AXE
+
+    path_list = path_find(coord)
+    if (coord is not None and len(path_list) == 1):
+        player.has_key = True
+        return 'F',state
+
+    if (player.has_key):
+        coord = find_item(grid,'-')
+        path_list = path_find(coord)
+        return path_to_commands(path_list, player, coord)+'U',state
+
+    path_list = path_find(coord)
+    return path_to_commands(path_list, player, coord),state
+
 
 def axe():
-    pass
+    print("Axing")
+
+    coord = find_item(grid,'a')
+    if (coord is None and not player.has_axe):
+        return None,State.PANIC
+
+    path_list = path_find(coord)
+    print(path_list)
+    if (coord is not None and len(path_list) == 1):
+        player.has_axe = True
+        return 'F',state
+
+    if (player.has_axe):
+        coord = find_item(grid,'T')
+        if (coord is None):
+            player.has_raft = True
+            return None,State.EXPLORE
+        path_list = path_find(coord)
+        return path_to_commands(path_list, player, coord)+'C',state
+
+    return path_to_commands(path_list,player, coord),state
 
 def home():
     coord = (player.ix, player.iy)
     path_list = path_find(coord)
-    return path_to_commands(path_list, player)+'F',state
+    return path_to_commands(path_list, player, coord)+'F',state
 
 #Function to take get action from AI or user
 def get_actions(view):
@@ -302,13 +372,17 @@ def get_actions(view):
             commands,state = axe()
         elif (state == State.GO_HOME):
             commands,state = home()
+        elif (state == State.PANIC):
+            print("AGGHHHHHHHH!!!!!")
+            import pdb
+            pdb.set_trace()
 
         if (commands is not None):
             break
 
     command = commands[0]
     if (command == 'F'):
-        player.forward()
+        player.forward(grid)
     if (command == 'L'):
         player.left()
     if (command == 'R'):
