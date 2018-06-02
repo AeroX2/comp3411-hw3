@@ -21,9 +21,12 @@ class Coord:
 class State(Enum):
     INITIAL = auto()
     EXPLORE = auto()
+    GOAL = auto()
+    NO_GOAL_FOUND = auto()
     GOTO_TREASURE = auto()
     GOTO_KEY = auto()
     GOTO_AXE = auto()
+    GOTO_STONE = auto()
     GO_HOME = auto()
     PANIC = auto()
 
@@ -75,16 +78,24 @@ class Direction(Enum):
 class Player:
     #Player should always start in the 
     #middle of the 5 by 5 grid but unknown 'X's surround the grid
-    ix = 3
     x = 3
-    iy = 3
     y = 3
+    ix = 3
+    iy = 3
+
+    px = 3
+    py = 3
 
     direction = Direction.NORTH
+    stones = 0
+
+    has_treasure = False
     has_raft = False
     has_key = False
     has_axe = False
+
     on_water = False
+    on_raft = False
 
     def left(self):
         self.direction = Direction.left(self.direction)
@@ -92,7 +103,7 @@ class Player:
     def right(self):
         self.direction = Direction.right(self.direction)
 
-    def forward(self, grid):
+    def forward(self, grid, goals):
         if (self.direction == Direction.NORTH):
             self.y -= 1
         elif (self.direction == Direction.EAST):
@@ -102,16 +113,48 @@ class Player:
         elif (self.direction == Direction.WEST):
             self.x -= 1
 
-        if (grid[self.y][self.x] == '~'):
+        cell = grid[self.y][self.x]
+        if (cell == 'a'):
+            if (goals[-1] == '~' or goals[-1] == 'T'):
+                goals.pop()
+            self.has_axe = True
+        elif (cell == 'k'):
+            if (goals[-1] == '-'):
+                goals.pop()
+            self.has_key = True
+        elif (cell == '$'):
+            if (goals[-1] == '$'):
+                goals.pop()
+            self.has_treasure = True
+        elif (cell == 'o'):
+            if (goals[-1] == '~'):
+                goals.pop()
+            self.stones += 1
+        elif (cell == '~'):
             self.on_water = True
-        elif (self.on_water):
-            self.has_raft = False
+            if (self.stones > 0):
+                print("USING STONE")
+                print(player.has_raft)
+                self.stones -= 1
+            else:
+                print("ON RAFT")
+                self.on_raft = True
+        elif ((cell == ' ' or cell == 'O') and self.on_water):
+            if (self.on_raft):
+                self.on_raft = False
+                self.has_raft = False
             self.on_water = False
+
+    def cut(self):
+        print("CUTTING")
+        self.has_raft = True
+
 
 # Declaring visible grid to agent
 view = [['' for _ in range(5)] for _ in range(5)]
 
 grid = None
+goals = ['h','$']
 state = State.INITIAL
 player = Player()
 
@@ -119,7 +162,9 @@ def find_item(grid, item):
     for y,line in enumerate(grid):
         try:
             x = line.index(item)
-            return (x,y)
+            path_list = path_find((x,y))
+            if (path_list is not None):
+                return (x,y)
         except ValueError:
             pass
     return None
@@ -148,8 +193,8 @@ def rotate_left(grid):
 
 #Use BFS to find the shortest path
 def path_find(target):
-    accepted = [' ','a','k','o']
-    if (player.has_raft):
+    accepted = [' ','a','k','o','O']
+    if (player.has_raft or player.stones > 0):
         accepted.append('~')
 
     path = path_find_full(target,accepted)
@@ -157,10 +202,10 @@ def path_find(target):
         return None
     return list(map(lambda x: x[0], path))
 
-def path_find_full(target,accepted=[' ','a','k','o']):
+def path_find_full(target,accepted):
     visited = set()
 
-    start = ((player.x, player.y),' ')
+    start = ((player.x, player.y),' ',player.stones)
     first_element = ([start],0) 
     queue = [first_element]
 
@@ -179,15 +224,21 @@ def path_find_full(target,accepted=[' ','a','k','o']):
 
             cell = grid[new_pos[1]][new_pos[0]]
             if (cell in accepted):
+                stones = path[0][-1][2]
+                stones -= 1
+                if (stones < 0 and cell == '~'):
+                    #TODO Hmmm
+                    pass
+                    #continue
 
                 #Increase the cost if not an empty spot
                 #Encourage the player to take the easiest route
-                cost = path[1]+1 if cell != ' ' else path[1]
+                cost = path[1]+1 if cell != ' ' and cell != 'O' else path[1]
 
                 #If the player has a raft, try not to go back on land
-                cost += 1 if cell == ' ' and player.has_raft else 0
+                cost += 100 if cell == ' ' and player.has_raft else 0
 
-                new_path = (path[0][:]+[(new_pos,cell)],cost)
+                new_path = (path[0][:]+[(new_pos,cell,stones)],cost)
                 queue.append(new_path)
 
         queue = sorted(queue, key=lambda x: x[1])
@@ -224,10 +275,10 @@ def path_to_commands(path, player, target):
 def explore():
     print("Exploring")
 
-    treasure_coord = find_item(grid,'$')
-    if (treasure_coord is not None):
-        if (path_find(treasure_coord) is not None):
-            return None,State.GOTO_TREASURE
+    #goal_coord = find_item(grid,goals[-1])
+    #if (goal_coord is not None):
+    #    if (path_find_full(goal_coord,accepted=[' ','T','-','~','a','k','o']) is not None):
+    #        return None,State.GOAL
 
     #Find every single unknown cell
     unknowns = []
@@ -247,28 +298,96 @@ def explore():
         if (path_list is not None):
             return path_to_commands(path_list,player,coord),state
 
-    #Check if we can reach the treasure at all
-    path = path_find_full(treasure_coord,accepted=[' ','T','-','~','a','k','o'])
-    if (path is not None):
-        obstacles = filter(lambda x: x != ' ', map(lambda x: x[1], path))
-        obstacles = list(filter(lambda x: not (x == '~' and player.has_raft), obstacles))
-        #print(obstacles)
+    #Haven't found our goal yet, try everything to explore more
+    return None,State.NO_GOAL_FOUND
 
-        first_obstacle = obstacles[0]
-        if (first_obstacle == '-'):
-            return None,State.GOTO_KEY
-        elif (first_obstacle == 'T' or first_obstacle == '~'):
-            return None,State.GOTO_AXE
-    return None,State.GOTO_KEY
+def goal():
+    print("Goaling")
+
+    #goal = goals[-1]
+
+    ##Check if the goal
+    #if (goal == '-'):
+    #    commands,state = key()
+    #    if (commands is not None):
+    #        return commands,state
+    #elif (goal == '$'):
+    #    commands,state = treasure()
+    #    if (commands is not None):
+    #        return commands,state
+    #elif (goal == 'h'):
+    #    commands,state = home()
+    #    if (commands is not None):
+    #        return commands,state
+
+    ##Check if we can reach the goal at all
+    #goal_coord = find_item(grid,goal)
+    #path = path_find_full(goal_coord,accepted=[' ','T','-','~','a','k','o'])
+
+    #if (path is not None): #Check what we need to reach our goal
+    #    obstacles = filter(lambda x: x != ' ', map(lambda x: x[1], path))
+    #    obstacles = list(obstacles)
+    #    print(obstacles)
+    #    if (obstacles):
+    #        import pdb
+    #        pdb.set_trace()
+    #        goals.append(obstacles[-1])
+    #        return None,state
+
+    #If we cant reach our goal at all we need to explore more
+    #Lets check if we can cut down some trees
+    commands,state = axe()
+    if (commands is not None):
+        return commands,state
+    #Else just normally explore
+
+    return None,State.EXPLORE
+
+def no_goal_found():
+    print("No goal found")
+
+    commands,state = key()
+    if (commands is not None):
+        return commands,state
+
+    commands,state = axe()
+    if (commands is not None):
+        return commands,state
+
+    commands,state = stone()
+    if (commands is not None):
+        return commands,state
+
+    commands,state = treasure()
+    if (commands is not None):
+        return commands,state
+
+    if (player.has_treasure):
+        commands,state = home()
+        if (commands is not None):
+            return commands,state
+
+    commands,state = explore()
+    if (commands is not None):
+        return commands,State.EXPLORE
+
+    #Nothing left to do
+    #This is the end
+    print("Tried everything, nothing left to do")
+    import sys
+    sys.exit()
 
 def treasure():
     print("Treasuring")
 
     coord = find_item(grid,'$')
     if (coord is None):
-        return None,State.GO_HOME
+        return None,State.GOAL
 
     path_list = path_find(coord)
+    if (path_list is None):
+        return None,State.GOAL
+
     return path_to_commands(path_list, player,coord)+'F',state
 
 def key():
@@ -276,19 +395,22 @@ def key():
 
     coord = find_item(grid,'k')
     if (coord is None and not player.has_key):
-        return None,State.GOTO_AXE
+        return None,State.GOAL
 
     path_list = path_find(coord)
-    if (coord is not None and len(path_list) == 1):
-        player.has_key = True
+    command_list = None
+    if (path_list is not None):
+        command_list = path_to_commands(path_list, player, coord)
+    if (coord is not None and len(command_list) == 0):
         return 'F',state
 
     if (player.has_key):
         coord = find_item(grid,'-')
         path_list = path_find(coord)
+        if (path_list is None):
+            return None,State.GOAL
         return path_to_commands(path_list, player, coord)+'U',state
 
-    path_list = path_find(coord)
     return path_to_commands(path_list, player, coord),state
 
 
@@ -297,27 +419,48 @@ def axe():
 
     coord = find_item(grid,'a')
     if (coord is None and not player.has_axe):
-        return None,State.PANIC
+        return None,State.GOAL
 
     path_list = path_find(coord)
-    print(path_list)
-    if (coord is not None and len(path_list) == 1):
-        player.has_axe = True
+    command_list = None
+    if (path_list is not None):
+        command_list = path_to_commands(path_list, player, coord)
+    if (coord is not None and len(command_list) == 0):
         return 'F',state
 
     if (player.has_axe):
         coord = find_item(grid,'T')
         if (coord is None):
-            player.has_raft = True
             return None,State.EXPLORE
-        path_list = path_find(coord)
+
+        accepted = [' ','a','k','o','O']
+        path_list = path_find_full(coord,accepted)
+        if (path_list is None):
+            return None,State.EXPLORE
+        path_list = list(map(lambda x: x[0], path_list))
+
         return path_to_commands(path_list, player, coord)+'C',state
 
     return path_to_commands(path_list,player, coord),state
 
+def stone():
+    print("Stoning")
+
+    coord = find_item(grid,'o')
+    if (coord is None):
+        return None,State.GOAL
+
+    path_list = path_find(coord)
+    if (path_list is None):
+        return None,State.GOAL
+
+    return path_to_commands(path_list, player,coord)+'F',state
+
 def home():
     coord = (player.ix, player.iy)
     path_list = path_find(coord)
+    if (path_list is None):
+        return None,State.GOAL
     return path_to_commands(path_list, player, coord)+'F',state
 
 #Function to take get action from AI or user
@@ -328,13 +471,11 @@ def get_actions(view):
 
     if (grid is None):
         grid = copy.deepcopy(view)
-        print(grid)
         grid.insert(0,['X' for _ in range(len(grid[0]))])
         grid.append(['X' for _ in range(len(grid[0]))])
         for line in grid:
             line.insert(0,'X')
             line.append('X')
-        print(grid)
     else:
         #Check if the grid needs to be expanded
         expand_map(grid, player)
@@ -359,35 +500,51 @@ def get_actions(view):
     print_map(grid)
 
     commands = None
-    while True:
+    for iteration in range(11):
         if (state == State.INITIAL):
             state = State.EXPLORE
         elif (state == State.EXPLORE):
             commands,state = explore()
+        elif (state == State.GOAL):
+            commands,state = goal()
+        elif (state == State.NO_GOAL_FOUND):
+            commands,state = no_goal_found()
         elif (state == State.GOTO_TREASURE):
             commands,state = treasure()
         elif (state == State.GOTO_KEY):
             commands,state = key()
         elif (state == State.GOTO_AXE):
             commands,state = axe()
+        elif (state == State.GOTO_STONE):
+            commands,state = stone()
         elif (state == State.GO_HOME):
             commands,state = home()
-        elif (state == State.PANIC):
-            print("AGGHHHHHHHH!!!!!")
-            import pdb
-            pdb.set_trace()
+        else:
+            print("YOU DIDNT DEFINE A STATE")
+            import sys
+            sys.exit()
 
         if (commands is not None):
             break
 
+    if (iteration >= 10):
+        print("ERROR: TOO MANY ITERATIONS")
+        import sys
+        sys.exit()
+
     command = commands[0]
     if (command == 'F'):
-        player.forward(grid)
-    if (command == 'L'):
+        player.forward(grid, goals)
+    elif (command == 'L'):
         player.left()
-    if (command == 'R'):
+    elif (command == 'R'):
         player.right()
-    #commands = [command]
+    elif (command == 'C'):
+        player.cut()
+    elif (command == 'U'):
+        print(goals)
+        goals.pop()
+        print(goals)
 
     return commands
 
