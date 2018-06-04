@@ -18,6 +18,50 @@ class Coord:
         self.x = x
         self.y = y
 
+class Grid:
+    grid = []
+
+    def __init__(self, view):
+        self.grid = copy.deepcopy(view)
+        self.grid.insert(0,['X' for _ in range(len(self.grid[0]))])
+        self.grid.append(['X' for _ in range(len(self.grid[0]))])
+        for line in self.grid:
+            line.insert(0,'X')
+            line.append('X')
+
+    def __getitem__(self, index):
+        if (isinstance(self.grid[0], list)):
+            return self.grid[index]
+        return self.grid[index]
+
+    def safe_get(self, coord):
+        try:
+            return self.grid[coord[1]][coord[0]]
+        except:
+            return None
+
+    def set(self,tup,value):
+        self.grid[tup[0]][tup[1]] = value
+
+    def expand_map(self, player):
+        if (player.x-3 < 0):
+            player.x += 1
+            player.ix += 1
+            for line in self.grid:
+                line.insert(0,'X')
+        elif (player.x+3 > len(self.grid[0])-1):
+            for line in self.grid:
+                line.append('X')
+        elif (player.y-3 < 0):
+            player.y += 1
+            player.iy += 1
+            self.grid.insert(0,['X' for _ in range(len(self.grid[0]))])
+        elif (player.y+3 > len(self.grid)-1):
+            self.grid.append(['X' for _ in range(len(self.grid[0]))])
+
+    def print(self):
+        print_map(self.grid)
+
 class State(Enum):
     INITIAL = auto()
     EXPLORE = auto()
@@ -103,7 +147,9 @@ class Player:
     def right(self):
         self.direction = Direction.right(self.direction)
 
-    def forward(self, grid, goals):
+    def forward(self, grid):
+        grid.set((self.y,self.x),'+')
+
         if (self.direction == Direction.NORTH):
             self.y -= 1
         elif (self.direction == Direction.EAST):
@@ -115,29 +161,18 @@ class Player:
 
         cell = grid[self.y][self.x]
         if (cell == 'a'):
-            if (goals[-1] == '~' or goals[-1] == 'T'):
-                goals.pop()
             self.has_axe = True
         elif (cell == 'k'):
-            if (goals[-1] == '-'):
-                goals.pop()
             self.has_key = True
         elif (cell == '$'):
-            if (goals[-1] == '$'):
-                goals.pop()
             self.has_treasure = True
         elif (cell == 'o'):
-            if (goals[-1] == '~'):
-                goals.pop()
             self.stones += 1
         elif (cell == '~'):
             self.on_water = True
             if (self.stones > 0):
-                print("USING STONE")
-                print(player.has_raft)
                 self.stones -= 1
             else:
-                print("ON RAFT")
                 self.on_raft = True
         elif ((cell == ' ' or cell == 'O') and self.on_water):
             if (self.on_raft):
@@ -146,15 +181,18 @@ class Player:
             self.on_water = False
 
     def cut(self):
-        print("CUTTING")
         self.has_raft = True
 
+def rotate_right(view):
+    return [list(reversed(x)) for x in zip(*view)]
+
+def rotate_left(view):
+    return list(zip(*[reversed(x) for x in view]))
 
 # Declaring visible grid to agent
 view = [['' for _ in range(5)] for _ in range(5)]
 
 grid = None
-goals = ['h','$']
 state = State.INITIAL
 player = Player()
 
@@ -169,31 +207,9 @@ def find_item(grid, item):
                 return (x,y)
     return None
 
-def expand_map(grid, player):
-    if (player.x-3 < 0):
-        player.x += 1
-        player.ix += 1
-        for line in grid:
-            line.insert(0,'X')
-    elif (player.x+3 > len(grid[0])-1):
-        for line in grid:
-            line.append('X')
-    elif (player.y-3 < 0):
-        player.y += 1
-        player.iy += 1
-        grid.insert(0,['X' for _ in range(len(grid[0]))])
-    elif (player.y+3 > len(grid)-1):
-        grid.append(['X' for _ in range(len(grid[0]))])
-
-def rotate_right(grid):
-    return [list(reversed(x)) for x in zip(*grid)]
-
-def rotate_left(grid):
-    return list(zip(*[reversed(x) for x in grid]))
-
 #Use BFS to find the shortest path
 def path_find(target):
-    accepted = [' ','a','k','o','O']
+    accepted = [' ','+','a','k','o','O']
     if (player.has_raft or player.stones > 0):
         accepted.append('~')
 
@@ -202,41 +218,54 @@ def path_find(target):
         return None
     return list(map(lambda x: x[0], path))
 
-def path_find_full(target,accepted):
+def path_find_full(target,accepted,debug=False):
     visited = set()
+    visited_stones = set()
 
     start = ((player.x, player.y),' ',player.stones)
     first_element = ([start],0) 
     queue = [first_element]
+
+    new_grid = Grid([['x']])
+    new_grid.grid = copy.deepcopy(grid.grid)
 
     while queue:
         path = queue.pop(0)
         curr_pos = path[0][-1][0]
 
         for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
+            stones = path[0][-1][2]
             new_pos = (curr_pos[0]+direction[0],curr_pos[1]+direction[1])
-            if (new_pos in visited):
+            cell = grid[new_pos[1]][new_pos[0]]
+
+            new_state = (new_pos[0],new_pos[1],stones)
+            if (new_state in visited):
                 continue
-            visited.add(new_pos)
+            visited.add(new_state)
 
             if (new_pos == target):
                 return path[0]
 
-            cell = grid[new_pos[1]][new_pos[0]]
             if (cell in accepted):
-                stones = path[0][-1][2]
-                stones -= 1
-                if (stones < 0 and cell == '~'):
-                    #TODO Hmmm
-                    pass
-                    #continue
+                if (cell == '~'):
+                    stones -= 1
+                    if (stones < 0 and not player.has_raft):
+                        continue
+                elif (cell == 'o'):
+                    if (new_pos not in visited_stones):
+                        visited_stones.add(new_pos)
+                        stones += 1
+
+                if (debug):
+                    new_grid.set((new_pos[1],new_pos[0]),str(stones))
+                    new_grid.print()
 
                 #Increase the cost if not an empty spot
                 #Encourage the player to take the easiest route
                 cost = path[1]+1 if cell != ' ' and cell != 'O' else path[1]
 
                 #If the player has a raft, try not to go back on land
-                cost += 100 if cell == ' ' and player.has_raft else 0
+                cost += 100 if cell == ' ' and player.on_raft else 0
 
                 new_path = (path[0][:]+[(new_pos,cell,stones)],cost)
                 queue.append(new_path)
@@ -284,8 +313,25 @@ def explore():
     unknowns = []
     for y,line in enumerate(grid):
         for x,v in enumerate(line):
-            if (v == 'X'):
+            if (v != ' '):
+                continue
+
+            do_it = False
+            for x2 in range(-3,4):
+                for y2 in range(-3,4):
+                    new_pos = (x+x2,y+y2)
+                    if (grid.safe_get(new_pos) == 'X'):
+                        do_it = True
+                        break
+                if (do_it):
+                    break
+
+            if (do_it):
                 unknowns.append((x,y))
+
+            #elif (v == 't'):
+            #    unknowns = [(x,y)]
+            #    break
 
     #Sort by distance
     #Has a problem where it gets stuck between 2 points flickering between them
@@ -294,9 +340,14 @@ def explore():
 
     #Check if we can reach one of the unknowns
     for coord in unknowns:
+        temp = player.stones
+        player.stones = -10000
         path_list = path_find(coord)
-        if (path_list is not None):
-            return path_to_commands(path_list,player,coord),state
+        player.stones = temp
+
+        if (path_list is None):
+            continue
+        return path_to_commands(path_list,player,coord)+'F',state
 
     #Haven't found our goal yet, try everything to explore more
     return None,State.NO_GOAL_FOUND
@@ -350,11 +401,11 @@ def no_goal_found():
     if (commands is not None):
         return commands,state
 
-    commands,state = axe()
+    commands,state = stone()
     if (commands is not None):
         return commands,state
 
-    commands,state = stone()
+    commands,state = axe()
     if (commands is not None):
         return commands,state
 
@@ -407,7 +458,6 @@ def key():
     if (player.has_key):
         coord = find_item(grid,'-')
         path_list = path_find(coord)
-        print(coord)
         if (path_list is None):
             return None,State.GOAL
         return path_to_commands(path_list, player, coord)+'U',state
@@ -447,13 +497,33 @@ def axe():
 def stone():
     print("Stoning")
 
-    coord = find_item(grid,'o')
-    if (coord is None):
-        return None,State.GOAL
+    #coord = find_item(grid,'o')
+    #if (coord is None):
+    #    return None,State.GOAL
 
-    path_list = path_find(coord)
-    if (path_list is None):
-        return None,State.GOAL
+    coord = None
+    for y,line in enumerate(grid.grid):
+        for x,v in enumerate(line):
+            if (v == '$'):
+                coord = (x,y)
+                break
+    
+    accepted = [' ','+','a','k','o','O','~']
+    path = path_find_full(coord,accepted,debug=True)
+    #grid.print()
+    print(path)
+
+    #if (path is None):
+    #    return None
+    path_list = list(map(lambda x: x[0], path))
+
+
+    #coord = find_item(grid,'o')
+    #if (coord is None):
+    #    return None,State.GOAL
+
+    import time
+    time.sleep(1)
 
     return path_to_commands(path_list, player,coord)+'F',state
 
@@ -471,15 +541,10 @@ def get_actions(view):
     global state
 
     if (grid is None):
-        grid = copy.deepcopy(view)
-        grid.insert(0,['X' for _ in range(len(grid[0]))])
-        grid.append(['X' for _ in range(len(grid[0]))])
-        for line in grid:
-            line.insert(0,'X')
-            line.append('X')
+        grid = Grid(view)
     else:
         #Check if the grid needs to be expanded
-        expand_map(grid, player)
+        grid.expand_map(player)
 
         #Rotate the view grid
         if (player.direction == Direction.EAST): 
@@ -493,12 +558,14 @@ def get_actions(view):
         #Update the grid
         for i in range(-2, 3):
             for ii in range(-2, 3):
-                grid[player.y+i][player.x+ii] = view[i+2][ii+2]
+                if (grid[player.y+i][player.x+ii] != '+'):
+                    grid.set((player.y+i,player.x+ii),view[i+2][ii+2])
 
     #print(len(grid[0]), len(grid))
-    #print(player.x, player.y, player.direction.name)
     print("GRID")
-    print_map(grid)
+    print(player.x, player.y, player.direction.name)
+    #print_map(grid)
+    grid.print()
 
     commands = None
     for iteration in range(11):
@@ -533,9 +600,10 @@ def get_actions(view):
         import sys
         sys.exit()
 
+    #commands = input()
     command = commands[0]
     if (command == 'F'):
-        player.forward(grid, goals)
+        player.forward(grid)
     elif (command == 'L'):
         player.left()
     elif (command == 'R'):
