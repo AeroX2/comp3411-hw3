@@ -130,8 +130,6 @@ class Player:
     px = 3
     py = 3
 
-    target = None
-
     direction = Direction.NORTH
     stones = 0
 
@@ -150,7 +148,7 @@ class Player:
         self.direction = Direction.right(self.direction)
 
     def forward(self, grid):
-        #grid.set((self.y,self.x),'+')
+        grid.set((self.y,self.x),'+')
 
         if (self.direction == Direction.NORTH):
             self.y -= 1
@@ -511,7 +509,7 @@ def stone():
                 break
     
     accepted = [' ','+','a','k','o','O','~']
-    path = path_find_full(coord,accepted,debug=False)
+    path = path_find_full(coord,accepted,debug=True)
     #grid.print()
     print(path)
 
@@ -671,10 +669,10 @@ if __name__ == "__main__":
         if (j == 0 and i == 0):
             #print_grid(view) # COMMENT THIS OUT ON SUBMISSION
             actions = get_actions(view)
-            actions_encoded = ''.join(actions).encode('utf-8')
-            print(actions)
+            action = actions[0]
+            print(action)
 
-            sock.send(actions_encoded)
+            sock.send(action.encode('utf-8'))
             #time.sleep(0.1)
 
     sock.close()
