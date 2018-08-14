@@ -32,15 +32,19 @@ player = Player()
 def find_item(grid, item):
     for y,line in enumerate(grid):
         for x,v in enumerate(line):
-            if (v == item):
+            if (v != item):
+                continue
+
+            path_list = path_find((x,y))
+            if (path_list is not None):
                 return (x,y)
     return None
 
 #Use BFS to find the shortest path
-def path_find_full(target,accepted,debug=False,error=-1):
+def path_find_full(target,accepted,debug=False):
     visited = set()
 
-    start = (player.x, player.y, error)
+    start = (player.x, player.y, 0)
     queue = [[start]]
 
     while queue:
@@ -49,6 +53,10 @@ def path_find_full(target,accepted,debug=False,error=-1):
 
         for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
             new_pos = (curr_pos_x+direction[0],curr_pos_y+direction[1])
+
+            #Check if we have reached the target
+            if (new_pos == target):
+                return path
 
             #Check if we can move in this direction
             cell = grid.safe_get(new_pos)
@@ -60,17 +68,13 @@ def path_find_full(target,accepted,debug=False,error=-1):
                 continue
             visited.add(new_state)
 
-            new_path = path[:]+[new_state]
             if (cell in accepted and error <= 0):
+                new_path = path[:]+[new_state]
                 queue.append(new_path)
-            elif (error == 0):
+            elif (error < 1):
                 new_state = (new_pos[0],new_pos[1],error+1) #(new_pos,player_state)
                 new_path = path[:]+[new_state]
                 queue.append(new_path)
-
-            #Check if we have reached the target
-            if (new_pos == target):
-                return new_path
     return None
 
 #Convert a path to a command list
@@ -85,10 +89,10 @@ def path_to_commands(path, player, target):
     current_direction = player.direction
     commands = ''
 
-    #raw_direction = (target[0]-player.x, target[1]-player.y)
-    #if (raw_direction in translation):
-    #    direction = translation[raw_direction]
-    #    #commands += Direction.difference(current_direction, direction)
+    raw_direction = (target[0]-player.x, target[1]-player.y)
+    if (raw_direction in translation):
+        direction = translation[raw_direction]
+        commands += Direction.difference(current_direction, direction)
 
     for i,pos in enumerate(path[:-1],1):
         raw_direction = (path[i][0]-path[i-1][0],path[i][1]-path[i-1][1])
@@ -112,12 +116,12 @@ def explore():
     #Check if we can reach one of the unknowns
     accepted = [' ','a','k','o','O','X']
     for coord in unknowns:
-        path_list = path_find_full(coord,accepted,error=0)
+        path_list = path_find_full(coord,accepted)
         if (path_list is None):
             continue
 
         player.target = coord;
-        return path_to_commands(path_list,player,coord),State.EXPLORE
+        return path_to_commands(path_list,player,coord)+'F',State.EXPLORE
 
     #accepted = [' ','a','k','o','O','X','~']
     #for coord in unknowns:
@@ -129,11 +133,11 @@ def explore():
     #    return path_to_commands(path_list,player,coord)+'F',State.EXPLORE
 
     #If we can't reach any of the unknowns without crossing water, then we need a axe and a raft
-    if (not player.has_axe):
-        commands,state = axe();
-    elif (not player.has_raft):
-        commands,state = raft();
-    return commands,state
+    #if (not player.has_axe):
+    #    commands,state = axe();
+    #elif (not player.has_raft):
+    #    commands,state = raft();
+    #return commands,state
 
 def can_win():
     print("Checking if we can win")
@@ -142,59 +146,62 @@ def can_win():
     if (treasure is None and not player.has_treasure):
         return None,None
 
-    print("Found treasure")
-
     accepted = [' ','a','k','o','O']
     if (player.has_raft):
         accepted.append('~')
     if (player.has_key):
         accepted.append('-')
-
     key_path_list = path_find_full(treasure,accepted)
     if (key_path_list is None):
         return None,None
-    print("Can get treasure")
 
     coord = (player.ix, player.iy)
     home_path_list = path_find_full(coord,accepted)
     if (home_path_list is None):
         return None,None
 
-    print("Can get back home")
-
-    key_commands = path_to_commands(key_path_list,player,coord)
-    temp_player = Player()
-    temp_player.direction = player.direction
-    for c in key_commands:
-        if c == 'L':
-            temp_player.left()
-        if c == 'R':
-            temp_player.right()
-    return key_commands+path_to_commands(home_path_list,temp_player,coord),None
+    return path_to_commands(key_path_list,player,coord)+'F'+ \
+           path_to_commands(home_path_list,player,coord)+'F',State.EXPLORE
 
 #Function to take get action from AI or user
-def get_actions():
+def get_actions(view):
     global grid
     global player
     global state
 
+    if (grid is None):
+        grid = Grid(view)
+    else:
+        #Check if the grid needs to be expanded
+        grid.expand_map(player)
+
+        #Rotate the view grid
+        if (player.direction == Direction.EAST): 
+            view = rotate_right(view)
+        elif (player.direction == Direction.WEST): 
+            view = rotate_left(view)
+        elif (player.direction == Direction.SOUTH): 
+            view = rotate_right(view)
+            view = rotate_right(view)
+
+        #Update the grid
+        for i in range(-2, 3):
+            for ii in range(-2, 3):
+                grid.set((player.y+i,player.x+ii),view[i+2][ii+2])
+
+    #print(len(grid[0]), len(grid))
     print("GRID")
     print(player.x, player.y, player.direction.name)
+    #print_map(grid)
     grid.print()
 
-    commands,state = can_win()
+    commands = None
+    #commands,state = can_win()
     if (commands is None):
-        commands,state = explore()
+        commands = explore()
         commands = commands[0:1]
-    else:
-        import pdb; pdb.set_trace()
-    return commands
 
-def update(command, view):
-    global grid
-    global player
-    global state
-
+    command = commands[0]
     if (command == 'F'):
         player.forward(grid)
     elif (command == 'L'):
@@ -204,24 +211,7 @@ def update(command, view):
     elif (command == 'C'):
         player.cut()
 
-    #Check if the grid needs to be expanded
-    if (grid is None):
-        grid = Grid(view)
-    grid.expand_map(player)
-
-    #Rotate the view grid
-    if (player.direction == Direction.EAST): 
-        view = rotate_right(view)
-    elif (player.direction == Direction.WEST): 
-        view = rotate_left(view)
-    elif (player.direction == Direction.SOUTH): 
-        view = rotate_right(view)
-        view = rotate_right(view)
-
-    #Update the grid
-    for i in range(-2, 3):
-        for ii in range(-2, 3):
-            grid.set((player.y+i,player.x+ii),view[i+2][ii+2])
+    return commands
 
 #Helper function to print the grid
 def print_map(map):
@@ -254,9 +244,8 @@ if __name__ == "__main__":
          sys.exit()
 
     import time
-    previous_actions = ['']
 
-    # Navigates through grid with input stream of data
+    # navigates through grid with input stream of data
     i=0
     j=0
     while True:
@@ -277,12 +266,9 @@ if __name__ == "__main__":
                 i=(i+1)%5
 
         if (j == 0 and i == 0):
-            update(previous_actions[0], view)
-            previous_actions = previous_actions[1:]
+            actions = get_actions(view)
+            actions_encoded = ''.join(actions).encode('utf-8')
 
-            if (len(previous_actions) <= 0):
-                previous_actions = get_actions()
-                print(previous_actions)
-            sock.send(previous_actions[0].encode('utf-8'))
+            sock.send(actions_encoded)
             #time.sleep(1)
 

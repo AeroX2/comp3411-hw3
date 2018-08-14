@@ -130,6 +130,7 @@ class Player:
     px = 3
     py = 3
 
+    target = None
     direction = Direction.NORTH
     stones = 0
 
@@ -148,8 +149,6 @@ class Player:
         self.direction = Direction.right(self.direction)
 
     def forward(self, grid):
-        grid.set((self.y,self.x),'+')
-
         if (self.direction == Direction.NORTH):
             self.y -= 1
         elif (self.direction == Direction.EAST):
