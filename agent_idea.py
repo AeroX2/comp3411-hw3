@@ -11,7 +11,16 @@
 import sys
 import copy
 import socket
-from enum import Enum, auto
+from enum import Enum
+
+try:
+    from enum import auto
+except ImportError:
+    __auto_id = 0;
+    def auto():
+        global __auto_id
+        __auto_id += 1
+        return __auto_id
 
 class Coord:
     def __init__(self, x, y):
