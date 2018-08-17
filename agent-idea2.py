@@ -86,6 +86,58 @@ def path_find_full(target,accepted,player_p=None):
         queue = sorted(queue, key=lambda x: x[-1][-1])
     return None
 
+from collections import namedtuple 
+PlayerState = namedtuple('PlayerState', ('x','y','stones','has_key','has_raft','has_treasure'))
+
+#Use BFS to brute force a solution
+def path_find_solve(target):
+    visited = set()
+
+    start = PlayerState(player.x, player.y,
+                        player.stones,
+                        player.has_key,
+                        player.has_raft,
+                        player.has_treasure)
+    queue = [[start]]
+    print(queue)
+
+    while queue:
+        path = queue.pop(0)
+        state = path[-1]
+
+        for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
+            new_pos = (state.x+direction[0],state.y+direction[1])
+
+            #Check if we can move in this direction
+            cell = grid.safe_get(new_pos)
+            if (cell is None):
+                continue
+
+            #TODO Stones can't be a count but has to be a list of the collected stones, otherwise we
+            #cross one piece of water and that is now in our visited list which menas we can't cross back
+            new_state = state._replace(x=new_pos[0],y=new_pos[1])
+            if (cell == 'o'):
+                new_state = new_state._replace(stones=state.stones+1)
+            elif (cell == '~'):
+                new_state = new_state._replace(stones=state.stones-1)
+
+            if (new_state.stones < 0):
+                continue
+
+            if (new_state in visited):
+                continue
+            visited.add(new_state)
+
+            new_path = path[:]+[new_state]
+            queue.append(new_path)
+
+            #Check if we have reached the target
+            if (new_pos == target):
+                return list(map(lambda p: (p.x, p.y), new_path))
+
+        #queue = sorted(queue, key=lambda x: x[-1][-1])
+    return None
+
 #Convert a path to a command list
 def path_to_commands(path, player, target):
     translation = {
@@ -124,45 +176,25 @@ def explore():
 
     #Check if we can reach one of the unknowns
     accepted = [' ','a','k','o','O','X']
-    for coord in unknowns:
-        path_list = path_find_full(coord,accepted)
+    for (ux,uy) in unknowns:
+        for coord in [(ux+x,uy+y) for x in range(-2,3) for y in range(-2,3)]:
+            if (coord[0] < 0 or coord[1] < 0):
+                continue
+            if (grid.safe_get(coord) != ' '):
+                continue
 
-        #Path doesn't exist
-        if (path_list is None):
-            continue
+            path_list = path_find_full(coord,accepted)
 
-        last = path_list[-1]
+            #Path doesn't exist
+            if (path_list is None):
+                continue
 
-        #Too many obstacles, ie (cost too high)
-        if (last[-1] > 3):
-            pass
-            #continue
+            print("Going towards",coord)
+            player.target = coord;
+            return path_to_commands(path_list,player,coord),State.EXPLORE
 
+    commands,state = can_win()
 
-        last = list(filter(lambda x: x[-1] <= 0, path_list))[-1]
-        #Outside view range
-        if (max(abs(last[0]-coord[0]),abs(last[1]-coord[1])) > 2):
-            print(coord, path_list)
-            continue
-
-        print("Going towards",coord)
-        player.target = coord;
-        return path_to_commands(path_list,player,coord),State.EXPLORE
-
-    #accepted = [' ','a','k','o','O','X','~']
-    #for coord in unknowns:
-    #    path_list = path_find_full(coord,accepted)
-    #    if (path_list is None):
-    #        continue
-
-    #    player.target = coord;
-    #    return path_to_commands(path_list,player,coord)+'F',State.EXPLORE
-
-    #If we can't reach any of the unknowns without crossing water, then we need a axe and a raft
-    if (not player.has_axe):
-        commands,state = axe();
-    elif (not player.has_raft):
-        commands,state = raft();
     return commands,state
 
 def can_win():
@@ -174,45 +206,42 @@ def can_win():
         return None,None
 
     print("Found treasure")
-
-    accepted = [' ','a','k','o','O']
-    if (player.has_raft):
-        accepted.append('~')
-    if (player.has_key):
-        accepted.append('-')
-
-    key_path_list = path_find_full(treasure,accepted)
-    if (key_path_list is None or key_path_list[-1][-1] > 0):
+    key_path_list = path_find_solve(treasure)
+    if (key_path_list is None):
+        print("Couldn't achieve goal")
         return None,None
+    print(key_path_list)
     print("Can get treasure")
 
-    key_commands = path_to_commands(key_path_list,player,treasure)
+    import pdb; pdb.set_trace()
 
-    temp_player = copy.deepcopy(player)
-    for c in key_commands:
-        if c == 'F':
-            temp_player.forward(grid)
-        elif c == 'L':
-            temp_player.left()
-        elif c == 'R':
-            temp_player.right()
+    #key_commands = path_to_commands(key_path_list,player,treasure)
 
-    home = (player.ix, player.iy)
-    home_path_list = path_find_full(home,accepted,temp_player)
-    if (home_path_list is None or home_path_list[-1][-1] > 0):
-        return None,None
+    #temp_player = copy.deepcopy(player)
+    #for c in key_commands:
+    #    if c == 'F':
+    #        temp_player.forward(grid)
+    #    elif c == 'L':
+    #        temp_player.left()
+    #    elif c == 'R':
+    #        temp_player.right()
 
-    print("Can get back home")
+    #home = (player.ix, player.iy)
+    #home_path_list = path_find_solve(home)
+    #if (home_path_list is None or home_path_list[-1][-1] > 0):
+    #    return None,None
+
+    #print("Can get back home")
 
 
     return key_commands+path_to_commands(home_path_list,temp_player,home),None
 
 #Function to take get action from AI or user
 def get_actions():
-    commands,state = can_win()
-    if (commands is None):
-        commands,state = explore()
-        commands = commands[0:1]
+
+    commands,state = explore()
+    commands = commands[0:1]
+
     return commands
 
 def update(command, view):
