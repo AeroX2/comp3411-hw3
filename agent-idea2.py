@@ -47,14 +47,14 @@ def path_find_full(target,accepted,player_p=None):
     visited = set()
 
     if (player_p is None):
-        start = (player.x, player.y, 0)
+        start = (player.x, player.y)
     else:
-        start = (player_p.x, player_p.y, 0)
+        start = (player_p.x, player_p.y)
     queue = [[start]]
 
     while queue:
         path = queue.pop(0)
-        curr_pos_x,curr_pos_y,cost_past_obstacle = path[-1]
+        curr_pos_x,curr_pos_y = path[-1]
 
         for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
             new_pos = (curr_pos_x+direction[0],curr_pos_y+direction[1])
@@ -64,30 +64,24 @@ def path_find_full(target,accepted,player_p=None):
             if (cell is None):
                 continue;
 
-            new_state = (new_pos[0],new_pos[1],cost_past_obstacle) #(new_pos,player_state)
-            if (cost_past_obstacle > 0):
-                new_state = (new_pos[0],new_pos[1],cost_past_obstacle+1) #(new_pos,player_state)
-
+            new_state = (new_pos[0],new_pos[1]) #(new_pos,player_state)
             if (new_state in visited):
                 continue
             visited.add(new_state)
 
             new_path = path[:]+[new_state]
-            if (cell in accepted or cost_past_obstacle > 0):
-                queue.append(new_path)
-            else:
-                new_state = (new_pos[0],new_pos[1],1) #(new_pos,player_state)
-                new_path = path[:]+[new_state]
+            if (cell in accepted):
                 queue.append(new_path)
 
             #Check if we have reached the target
             if (new_pos == target):
                 return new_path
-        queue = sorted(queue, key=lambda x: x[-1][-1])
+        #queue = sorted(queue, key=lambda x: x[-1][-1])
     return None
 
 from collections import namedtuple 
 PlayerState = namedtuple('PlayerState', ('x','y','stones','has_key','has_raft','has_treasure'))
+GridState = namedtuple('GridState', ('picked_stones', 'placed_stones'))
 
 #Use BFS to brute force a solution
 def path_find_solve(target):
@@ -98,41 +92,52 @@ def path_find_solve(target):
                         player.has_key,
                         player.has_raft,
                         player.has_treasure)
-    queue = [[start]]
-    print(queue)
+    grid_start = GridState(set(),set())
+    queue = [([start],grid_start)]
 
     while queue:
-        path = queue.pop(0)
-        state = path[-1]
+        #print(queue)
+        state = queue.pop(0)
+        path = state[0]
+        player_state = path[-1]
+        grid_state = state[1]
 
         for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
-            new_pos = (state.x+direction[0],state.y+direction[1])
+            new_pos = (player_state.x+direction[0],player_state.y+direction[1])
 
             #Check if we can move in this direction
             cell = grid.safe_get(new_pos)
             if (cell is None):
                 continue
 
-            #TODO Stones can't be a count but has to be a list of the collected stones, otherwise we
-            #cross one piece of water and that is now in our visited list which menas we can't cross back
-            new_state = state._replace(x=new_pos[0],y=new_pos[1])
+            new_player_state = player_state._replace(x=new_pos[0],y=new_pos[1])
+            new_grid_state = copy.deepcopy(grid_state) #._replace()
             if (cell == 'o'):
-                new_state = new_state._replace(stones=state.stones+1)
-            elif (cell == '~'):
-                new_state = new_state._replace(stones=state.stones-1)
-
-            if (new_state.stones < 0):
+                if (not new_pos in new_grid_state.picked_stones):
+                    new_player_state = new_player_state._replace(stones=player_state.stones+1)
+                    new_grid_state.picked_stones.add(new_pos)
+            elif (cell == '~'): 
+                if (not new_pos in new_grid_state.placed_stones):
+                    new_player_state = new_player_state._replace(stones=player_state.stones-1)
+                    new_grid_state.placed_stones.add(new_pos)
+            elif (cell == '.' or cell == 'X' or cell == '*'):
                 continue
 
-            if (new_state in visited):
+            if (new_player_state.stones < 0):
                 continue
-            visited.add(new_state)
 
-            new_path = path[:]+[new_state]
-            queue.append(new_path)
+            if (new_player_state in visited):
+                continue
+            visited.add(new_player_state)
+
+            new_path = path[:]+[new_player_state]
+            queue.append((new_path,new_grid_state))
 
             #Check if we have reached the target
             if (new_pos == target):
+                print("Bamm")
+                print(new_path)
+                print(new_grid_state)
                 return list(map(lambda p: (p.x, p.y), new_path))
 
         #queue = sorted(queue, key=lambda x: x[-1][-1])
@@ -178,8 +183,6 @@ def explore():
     accepted = [' ','a','k','o','O','X']
     for (ux,uy) in unknowns:
         for coord in [(ux+x,uy+y) for x in range(-2,3) for y in range(-2,3)]:
-            if (coord[0] < 0 or coord[1] < 0):
-                continue
             if (grid.safe_get(coord) != ' '):
                 continue
 
@@ -193,9 +196,7 @@ def explore():
             player.target = coord;
             return path_to_commands(path_list,player,coord),State.EXPLORE
 
-    commands,state = can_win()
-
-    return commands,state
+    return [1,2,3],State.GOTO_TREASURE
 
 def can_win():
     global player
@@ -213,9 +214,10 @@ def can_win():
     print(key_path_list)
     print("Can get treasure")
 
-    import pdb; pdb.set_trace()
+    #import pdb; pdb.set_trace()
 
-    #key_commands = path_to_commands(key_path_list,player,treasure)
+    key_commands = path_to_commands(key_path_list,player,treasure)
+    return key_commands,None
 
     #temp_player = copy.deepcopy(player)
     #for c in key_commands:
@@ -239,8 +241,11 @@ def can_win():
 #Function to take get action from AI or user
 def get_actions():
 
+    
     commands,state = explore()
     commands = commands[0:1]
+    if (state == State.GOTO_TREASURE):
+        commands,state = can_win()
 
     return commands
 

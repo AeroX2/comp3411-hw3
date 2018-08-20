@@ -45,6 +45,8 @@ class Grid:
 
     def safe_get(self, coord):
         try:
+            if (coord[0] < 0 or coord[1] < 0):
+                return None
             return self.grid[coord[1]][coord[0]]
         except:
             return None
