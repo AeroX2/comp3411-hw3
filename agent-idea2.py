@@ -99,7 +99,7 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                         0,
                         player.has_key,
                         player.has_raft) if (last_player_state is None) else last_player_state
-    grid_start = GridState(set(),set()) if (last_grid_state is None) else last_grid_state
+    grid_start = GridState(frozenset(),frozenset()) if (last_grid_state is None) else last_grid_state
     queue = [([start],grid_start)]
 
     hashc = lambda previous_hash, new_pos: hash((previous_hash, hash(new_pos)))
@@ -119,26 +119,31 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                 continue
 
             new_player_state = player_state._replace(x=new_pos[0],y=new_pos[1])
-            new_grid_state = copy.deepcopy(grid_state) #._replace()
+            new_picked_stones = set(grid_state.picked_stones)
+            new_placed_stones = set(grid_state.placed_stones)
+
             if (cell == 'o'):
-                if (not new_pos in new_grid_state.picked_stones):
-                    hashz = hashc(player_state.stones_hash, new_pos)
+                if (not new_pos in new_picked_stones):
                     new_player_state = new_player_state._replace(stones=player_state.stones+1)
-                    new_grid_state.picked_stones.add(new_pos)
+                    new_picked_stones.add(new_pos)
             elif (cell == '~'): 
-                if (not new_pos in new_grid_state.placed_stones):
+                if (not new_pos in new_placed_stones):
                     new_player_state = new_player_state._replace(stones=player_state.stones-1,
                                                                  stones_hash=hashc(player_state.stones_hash, new_pos))
-
-                    new_grid_state.placed_stones.add(new_pos)
-            elif (cell == '.' or cell == 'X' or cell == '*'):
+                    if (new_player_state.stones < 0):
+                        continue
+                    new_placed_stones.add(new_pos)
+            elif (cell == '.' or 
+                  cell == 'X' or
+                  cell == '*'):
                 continue
 
-            if (new_player_state.stones < 0):
-                continue
             if (new_player_state in visited):
                 continue
             visited.add(new_player_state)
+
+            new_grid_state = GridState(picked_stones=frozenset(new_picked_stones),
+                                       placed_stones=frozenset(new_placed_stones))
 
             new_path = path[:]+[new_player_state]
             queue.append((new_path,new_grid_state))
