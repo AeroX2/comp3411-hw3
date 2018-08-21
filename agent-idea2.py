@@ -27,6 +27,13 @@ def rotate_right(view):
 def rotate_left(view):
     return list(zip(*[reversed(x) for x in view]))
 
+direction_translation = {
+    (0,-1): Direction.NORTH,
+    (0,1): Direction.SOUTH,
+    (-1,0): Direction.WEST,
+    (1,0): Direction.EAST
+}
+
 # Declaring visible grid to agent
 view = [['' for _ in range(5)] for _ in range(5)]
 
@@ -84,16 +91,22 @@ PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key
 GridState = namedtuple('GridState', ('picked_stones', 'placed_stones'))
 
 #Use BFS to brute force a solution
-def path_find_solve(target):
+def path_find_solve(target, last_player_state=None, last_grid_state=None):
     visited = set()
 
-    start = PlayerState(player.x, player.y,
+    x = player.x
+    y = player.y
+    if (last_player_state is not None):
+        x = last_player_state.x
+        y = last_player_state.y
+
+    start = PlayerState(x, y,
                         player.stones,
                         0,
                         player.has_key,
                         player.has_raft,
                         player.has_treasure)
-    grid_start = GridState(set(),set())
+    grid_start = GridState(set(),set()) if last_grid_state is None else last_grid_state
     queue = [([start],grid_start)]
 
     hashc = lambda previous_hash, new_pos: hash((previous_hash, hash(new_pos)))
@@ -119,12 +132,12 @@ def path_find_solve(target):
             if (cell == 'o'):
                 if (not new_pos in new_grid_state.picked_stones):
                     hashz = hashc(player_state.stones_hash, new_pos)
-                    new_player_state = new_player_state._replace(stones=player_state.stones+1,
-                                                                 stones_hash=hashc(player_state.stones_hash, new_pos))
+                    new_player_state = new_player_state._replace(stones=player_state.stones+1)
                     new_grid_state.picked_stones.add(new_pos)
             elif (cell == '~'): 
                 if (not new_pos in new_grid_state.placed_stones):
-                    new_player_state = new_player_state._replace(stones=player_state.stones-1)
+                    new_player_state = new_player_state._replace(stones=player_state.stones-1,
+                                                                 stones_hash=hashc(player_state.stones_hash, new_pos))
                     new_grid_state.placed_stones.add(new_pos)
             elif (cell == '.' or cell == 'X' or cell == '*'):
                 continue
@@ -136,39 +149,29 @@ def path_find_solve(target):
                 continue
             visited.add(new_player_state)
 
+            if (new_pos[0] == 13 and new_pos[1] == 9):
+                print(new_grid_state)
+                print(new_player_state)
+
             new_path = path[:]+[new_player_state]
             queue.append((new_path,new_grid_state))
 
             #Check if we have reached the target
             if (new_pos == target):
-                print("Bamm")
-                print(new_path)
-                print(new_grid_state)
-                return list(map(lambda p: (p.x, p.y), new_path))
+                return list(map(lambda p: (p.x, p.y), new_path)),new_path[-1],new_grid_state
 
         #queue = sorted(queue, key=lambda x: x[-1][-1])
-    return None
+    return None,None,None
 
 #Convert a path to a command list
-def path_to_commands(path, player, target):
-    translation = {
-        (0,-1): Direction.NORTH,
-        (0,1): Direction.SOUTH,
-        (-1,0): Direction.WEST,
-        (1,0): Direction.EAST
-    }
+def path_to_commands(path, direction):
 
-    current_direction = player.direction
     commands = ''
-
-    #raw_direction = (target[0]-player.x, target[1]-player.y)
-    #if (raw_direction in translation):
-    #    direction = translation[raw_direction]
-    #    #commands += Direction.difference(current_direction, direction)
+    current_direction = direction
 
     for i,pos in enumerate(path[:-1],1):
         raw_direction = (path[i][0]-path[i-1][0],path[i][1]-path[i-1][1])
-        direction = translation[raw_direction]
+        direction = direction_translation[raw_direction]
 
         commands += Direction.difference(current_direction, direction)
         commands += 'F'
@@ -200,7 +203,7 @@ def explore():
 
             print("Going towards",coord)
             player.target = coord;
-            return path_to_commands(path_list,player,coord),State.EXPLORE
+            return path_to_commands(path_list,player.direction),State.EXPLORE
 
     return [1,2,3],State.GOTO_TREASURE
 
@@ -213,36 +216,33 @@ def can_win():
         return None,None
 
     print("Found treasure")
-    key_path_list = path_find_solve(treasure)
-    if (key_path_list is None):
-        print("Couldn't achieve goal")
+    key_path,last_player_state,last_grid_state = path_find_solve(treasure)
+    if (key_path is None):
+        print("Couldn't reach treasure")
         return None,None
-    print(key_path_list)
     print("Can get treasure")
 
+    print("Ahhh shit")
+    print(last_player_state)
+    print(last_grid_state)
+
+    home = (player.ix, player.iy)
+    home_path,_,_ = path_find_solve(home, last_player_state, last_grid_state)
+    if (home_path is None):
+        print("Couldn't get back home")
+        return None,None
+    print("Can get back home")
+
+    #new_direction = direction_translation[(key_path[-1][0]-key_path[-2][0],key_path[-1][1]-key_path[-2][1])]
+    new_direction = Direction.WEST
+    key_commands = path_to_commands(key_path,player.direction)
+    home_commands = path_to_commands(home_path,new_direction)
+    
+    #print(home_path)
+    #print(home_commands)
     #import pdb; pdb.set_trace()
 
-    key_commands = path_to_commands(key_path_list,player,treasure)
-    return key_commands,None
-
-    #temp_player = copy.deepcopy(player)
-    #for c in key_commands:
-    #    if c == 'F':
-    #        temp_player.forward(grid)
-    #    elif c == 'L':
-    #        temp_player.left()
-    #    elif c == 'R':
-    #        temp_player.right()
-
-    #home = (player.ix, player.iy)
-    #home_path_list = path_find_solve(home)
-    #if (home_path_list is None or home_path_list[-1][-1] > 0):
-    #    return None,None
-
-    #print("Can get back home")
-
-
-    return key_commands+path_to_commands(home_path_list,temp_player,home),None
+    return key_commands+home_commands,None
 
 #Function to take get action from AI or user
 def get_actions():
