@@ -263,13 +263,16 @@ def get_actions(view):
 
         #commands = explore()
 
-    command = input()
-    if (command == 'F'):
+    command = getch.getch()
+    if (command == 'i'):
         player.forward()
-    if (command == 'L'):
+        command = 'F'
+    elif (command == 'j'):
         player.left()
-    if (command == 'R'):
+        command = 'L'
+    elif (command == 'l'):
         player.right()
+        command = 'R'
     commands = [command]
 
     return commands
@@ -278,6 +281,15 @@ def get_actions(view):
 def print_grid(view):
     print('+'+'-'*len(map[0])+'+')
     for line in view:
+        for i,c in enumerate(line):
+            if c == '^':
+                if (player.direction == Direction.EAST):
+                    line[i] = '>'
+                elif (player.direction == Direction.SOUTH):
+                    line[i] = 'v'
+                elif (player.direction == Direction.WEST):
+                    line[i] = '<'
+
         print('|'+''.join(line)+'|')
     print('+'+'-'*len(map[0])+'+')
 
@@ -306,6 +318,7 @@ if __name__ == "__main__":
          sys.exit()
 
     import time
+    import getch
 
     # navigates through grid with input stream of data
     i=0

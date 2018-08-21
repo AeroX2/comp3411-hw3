@@ -80,7 +80,7 @@ def path_find_full(target,accepted,player_p=None):
     return None
 
 from collections import namedtuple 
-PlayerState = namedtuple('PlayerState', ('x','y','stones','has_key','has_raft','has_treasure'))
+PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_raft','has_treasure'))
 GridState = namedtuple('GridState', ('picked_stones', 'placed_stones'))
 
 #Use BFS to brute force a solution
@@ -89,14 +89,18 @@ def path_find_solve(target):
 
     start = PlayerState(player.x, player.y,
                         player.stones,
+                        0,
                         player.has_key,
                         player.has_raft,
                         player.has_treasure)
     grid_start = GridState(set(),set())
     queue = [([start],grid_start)]
 
+    hashc = lambda previous_hash, new_pos: hash((previous_hash, hash(new_pos)))
+
     while queue:
         #print(queue)
+
         state = queue.pop(0)
         path = state[0]
         player_state = path[-1]
@@ -114,7 +118,9 @@ def path_find_solve(target):
             new_grid_state = copy.deepcopy(grid_state) #._replace()
             if (cell == 'o'):
                 if (not new_pos in new_grid_state.picked_stones):
-                    new_player_state = new_player_state._replace(stones=player_state.stones+1)
+                    hashz = hashc(player_state.stones_hash, new_pos)
+                    new_player_state = new_player_state._replace(stones=player_state.stones+1,
+                                                                 stones_hash=hashc(player_state.stones_hash, new_pos))
                     new_grid_state.picked_stones.add(new_pos)
             elif (cell == '~'): 
                 if (not new_pos in new_grid_state.placed_stones):
