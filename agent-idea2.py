@@ -54,14 +54,14 @@ def path_find_full(target,accepted,player_p=None):
     visited = set()
 
     if (player_p is None):
-        start = (player.x, player.y)
+        start = (player.x, player.y, 0)
     else:
-        start = (player_p.x, player_p.y)
+        start = (player_p.x, player_p.y, 0)
     queue = [[start]]
 
     while queue:
         path = queue.pop(0)
-        curr_pos_x,curr_pos_y = path[-1]
+        curr_pos_x,curr_pos_y,cost = path[-1]
 
         for direction in [(0,1),(0,-1),(-1,0),(1,0)]:
             new_pos = (curr_pos_x+direction[0],curr_pos_y+direction[1])
@@ -69,12 +69,17 @@ def path_find_full(target,accepted,player_p=None):
             #Check if we can move in this direction
             cell = grid.safe_get(new_pos)
             if (cell is None):
-                continue;
+                continue
 
-            new_state = (new_pos[0],new_pos[1]) #(new_pos,player_state)
+            new_state = (new_pos[0],new_pos[1])
             if (new_state in visited):
                 continue
             visited.add(new_state)
+
+            new_cost = cost
+            if (cell not in ['X','o','-','k','a']):
+                new_cost += 1
+            new_state = (new_pos[0],new_pos[1],new_cost)
 
             new_path = path[:]+[new_state]
             if (cell in accepted):
@@ -83,7 +88,8 @@ def path_find_full(target,accepted,player_p=None):
             #Check if we have reached the target
             if (new_pos == target):
                 return new_path
-        #queue = sorted(queue, key=lambda x: x[-1][-1])
+
+        queue = sorted(queue, key=lambda x: x[-1][-1])
     return None
 
 from collections import namedtuple 
@@ -229,6 +235,11 @@ def can_win():
 
 #Function to take get action from AI or user
 def get_actions():
+    #commands,state = can_win()
+    #if (commands is None):
+    #    commands,state = explore()
+    #    commands = commands[0:1]
+
     commands,state = explore()
     commands = commands[0:1]
     if (state == State.GOTO_TREASURE):
