@@ -79,6 +79,8 @@ def path_find_full(target,accepted,player_p=None):
             new_cost = cost
             if (cell not in ['X','o','-','k','a']):
                 new_cost += 1
+            if (cell == ' ' and player.on_raft):
+                new_cost += 100
             new_state = (new_pos[0],new_pos[1],new_cost)
 
             new_path = path[:]+[new_state]
