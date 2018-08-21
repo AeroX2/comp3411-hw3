@@ -87,33 +87,24 @@ def path_find_full(target,accepted,player_p=None):
     return None
 
 from collections import namedtuple 
-PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_raft','has_treasure'))
+PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_raft'))
 GridState = namedtuple('GridState', ('picked_stones', 'placed_stones'))
 
 #Use BFS to brute force a solution
 def path_find_solve(target, last_player_state=None, last_grid_state=None):
     visited = set()
 
-    x = player.x
-    y = player.y
-    if (last_player_state is not None):
-        x = last_player_state.x
-        y = last_player_state.y
-
-    start = PlayerState(x, y,
+    start = PlayerState(player.x, player.y,
                         player.stones,
                         0,
                         player.has_key,
-                        player.has_raft,
-                        player.has_treasure)
-    grid_start = GridState(set(),set()) if last_grid_state is None else last_grid_state
+                        player.has_raft) if (last_player_state is None) else last_player_state
+    grid_start = GridState(set(),set()) if (last_grid_state is None) else last_grid_state
     queue = [([start],grid_start)]
 
     hashc = lambda previous_hash, new_pos: hash((previous_hash, hash(new_pos)))
 
     while queue:
-        #print(queue)
-
         state = queue.pop(0)
         path = state[0]
         player_state = path[-1]
@@ -138,20 +129,16 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                 if (not new_pos in new_grid_state.placed_stones):
                     new_player_state = new_player_state._replace(stones=player_state.stones-1,
                                                                  stones_hash=hashc(player_state.stones_hash, new_pos))
+
                     new_grid_state.placed_stones.add(new_pos)
             elif (cell == '.' or cell == 'X' or cell == '*'):
                 continue
 
             if (new_player_state.stones < 0):
                 continue
-
             if (new_player_state in visited):
                 continue
             visited.add(new_player_state)
-
-            if (new_pos[0] == 13 and new_pos[1] == 9):
-                print(new_grid_state)
-                print(new_player_state)
 
             new_path = path[:]+[new_player_state]
             queue.append((new_path,new_grid_state))
@@ -222,10 +209,6 @@ def can_win():
         return None,None
     print("Can get treasure")
 
-    print("Ahhh shit")
-    print(last_player_state)
-    print(last_grid_state)
-
     home = (player.ix, player.iy)
     home_path,_,_ = path_find_solve(home, last_player_state, last_grid_state)
     if (home_path is None):
@@ -233,21 +216,14 @@ def can_win():
         return None,None
     print("Can get back home")
 
-    #new_direction = direction_translation[(key_path[-1][0]-key_path[-2][0],key_path[-1][1]-key_path[-2][1])]
-    new_direction = Direction.WEST
+    new_direction = direction_translation[(key_path[-1][0]-key_path[-2][0],key_path[-1][1]-key_path[-2][1])]
     key_commands = path_to_commands(key_path,player.direction)
     home_commands = path_to_commands(home_path,new_direction)
     
-    #print(home_path)
-    #print(home_commands)
-    #import pdb; pdb.set_trace()
-
     return key_commands+home_commands,None
 
 #Function to take get action from AI or user
 def get_actions():
-
-    
     commands,state = explore()
     commands = commands[0:1]
     if (state == State.GOTO_TREASURE):
