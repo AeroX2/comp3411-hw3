@@ -83,8 +83,7 @@ def path_find_full(target,accepted,player_p=None):
 
             new_cost = cost
             if (cell not in ['X','o','-','k','a']):
-                #new_cost += 1
-                pass
+                new_cost += 1
             if (player.on_raft and cell != '~'):
                 new_cost += 100
 
@@ -101,14 +100,21 @@ def path_find_full(target,accepted,player_p=None):
     return None
 
 from collections import namedtuple 
-PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_axe','has_raft','on_water'))
-GridState = namedtuple('GridState', ('picked_stones', 'placed_stones', 'unlocked_doors', 'cut_trees'))
+PlayerState = namedtuple('PlayerState', ('x','y',
+                                         'stones',
+                                         'stones_hash',
+                                         'has_key',
+                                         'has_axe',
+                                         'has_raft',
+                                         'on_water'))
+GridState = namedtuple('GridState', ('picked_stones',
+                                     'placed_stones',
+                                     'unlocked_doors',
+                                     'cut_trees'))
 
 #Use BFS to brute force a solution
 def path_find_solve(target, last_player_state=None, last_grid_state=None):
     visited = set()
-
-    print(last_player_state)
 
     start = PlayerState(player.x, player.y,
                         player.stones,
@@ -140,13 +146,14 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                 continue
 
             new_player_state = player_state._replace(x=new_pos[0],y=new_pos[1])
+
             new_picked_stones = set(grid_state.picked_stones)
             new_placed_stones = set(grid_state.placed_stones)
             new_unlocked_doors = set(grid_state.unlocked_doors)
             new_cut_trees = set(grid_state.cut_trees)
 
             if (cell == ' '):
-                if (new_player_state.on_water):
+                if (player_state.on_water):
                     new_player_state = new_player_state._replace(on_water=False,
                                                                  has_raft=False)
             elif (cell == 'o'):
@@ -154,7 +161,7 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                     new_player_state = new_player_state._replace(stones=player_state.stones+1)
                     new_picked_stones.add(new_pos)
             elif (cell == '~'): 
-                    if (new_player_state.has_raft):
+                    if (player_state.has_raft):
                         new_player_state._replace(on_water=True,
                                                   has_raft=False)
                     else:
@@ -169,13 +176,17 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
             elif (cell == 'k'):
                 new_player_state = new_player_state._replace(has_key=True)
             elif (cell == '-'):
-                if (not new_player_state.has_key and not new_pos in new_unlocked_doors):
+                if (not player_state.has_key and not new_pos in new_unlocked_doors):
                     continue
                 new_player_state = new_player_state._replace(has_key=False)
                 new_unlocked_doors.add(new_pos)
             elif (cell == 'a'):
                 new_player_state = new_player_state._replace(has_axe=True)
             elif (cell == 'T'):
+                continue
+
+                if (not player_state.has_axe):
+                    continue
                 if (new_pos in new_cut_trees):
                     continue
                 new_player_state = new_player_state._replace(has_raft=True)
@@ -230,16 +241,27 @@ def path_to_commands(path, direction):
 def explore():
     print("Exploring")
 
-    #Find all the unknowns and sort them by distance from the player
-    unknowns = find_all_closest_item('X')
-    if (player.target is not None and grid.safe_get(player.target) == 'X'):
-        unknowns.insert(0,player.target)
-
-    #Check if we can reach one of the unknowns
     accepted = [' ','a','k','o','O']
+    if (player.has_axe):
+        accepted.append('T')
+    if (player.has_key):
+        accepted.append('-')
     if (player.has_raft):
         accepted.append('~')
 
+    #Find all the unknowns and sort them by distance from the player
+    unknowns = find_all_closest_item('X')
+    if (player.target == (player.x,player.y) or 
+        player.target not in accepted):
+        player.target = None
+    if (player.target is not None):
+        #unknowns.insert(0,player.target)
+        path_list = path_find_full(player.target,accepted)
+        if (path_list is not None):
+            commands = path_to_commands(path_list,player.direction)
+            return commands,State.EXPLORE
+
+    #Check if we can reach one of the areas around the unknowns
     for (ux,uy) in unknowns:
         for coord in [(ux+x,uy+y) for x in range(-2,3) for y in range(-2,3)]:
             if (grid.safe_get(coord) not in accepted):
@@ -251,13 +273,16 @@ def explore():
             if (path_list is None):
                 continue
 
-            print("Going towards",coord)
-            player.target = coord;
+            print(unknowns)
+            print("Going towards:",coord)
+            print("Because:",(ux,uy))
+            print("Path list:",path_list)
 
+            player.target = coord
             commands = path_to_commands(path_list,player.direction)
             return commands,State.EXPLORE
 
-    return [1,2,3],State.GOTO_AXE
+    return [0],State.GOTO_AXE
 
 def axe():
     print("Axing")
@@ -277,11 +302,13 @@ def axe():
 
 def tree():
     print("Treeing")
+    if (not player.has_axe):
+        return None,State.GOTO_TREASURE
 
     accepted = [' ','k','o','O','T']
-
     trees = find_all_closest_item('T')
     tree_path = None
+
     for tree in trees:
         tree_path = path_find_full(tree,accepted)
         if (tree_path is not None):
@@ -353,7 +380,6 @@ def update(command, view):
     elif (command == 'R'):
         player.right()
     elif (command == 'C'):
-        print("CUTTTTTTTINNNNNG")
         player.cut()
 
     #Check if the grid needs to be expanded
