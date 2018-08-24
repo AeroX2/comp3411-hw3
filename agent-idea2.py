@@ -84,8 +84,8 @@ def path_find_full(target,accepted,player_p=None):
             new_cost = cost
             if (cell not in ['X','o','-','k','a']):
                 new_cost += 1
-            if (player.on_raft and cell != '~'):
-                new_cost += 100
+            #if (player.on_raft and cell != '~'):
+            #    new_cost += 100
 
             new_state = (new_pos[0],new_pos[1],new_cost)
             new_path = path[:]+[new_state]
@@ -248,13 +248,17 @@ def explore():
         accepted.append('-')
     if (player.has_raft):
         accepted.append('~')
+    if (player.on_raft):
+        accepted = ['~']
 
     #Find all the unknowns and sort them by distance from the player
     unknowns = find_all_closest_item('X')
     if (player.target == (player.x,player.y) or 
-        player.target not in accepted):
+        grid.safe_get(player.target) not in accepted):
         player.target = None
     if (player.target is not None):
+        print("Using previous")
+
         #unknowns.insert(0,player.target)
         path_list = path_find_full(player.target,accepted)
         if (path_list is not None):
@@ -273,7 +277,7 @@ def explore():
             if (path_list is None):
                 continue
 
-            print(unknowns)
+            #print(unknowns)
             print("Going towards:",coord)
             print("Because:",(ux,uy))
             print("Path list:",path_list)
