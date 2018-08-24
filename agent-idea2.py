@@ -49,6 +49,11 @@ def find_item(grid, item):
                 return (x,y)
     return None
 
+def find_all_closest_item(item):
+    coords = [(x,y) for y,line in enumerate(grid) for x,v in enumerate(line) if v == item]
+    coords = sorted(coords, key=lambda x: abs(x[0]-player.x)+abs(x[1]-player.y))
+    return coords
+
 #Use BFS to find the shortest path
 def path_find_full(target,accepted,player_p=None):
     visited = set()
@@ -78,11 +83,12 @@ def path_find_full(target,accepted,player_p=None):
 
             new_cost = cost
             if (cell not in ['X','o','-','k','a']):
-                new_cost += 1
-            if (cell == ' ' and player.on_raft):
+                #new_cost += 1
+                pass
+            if (player.on_raft and cell != '~'):
                 new_cost += 100
-            new_state = (new_pos[0],new_pos[1],new_cost)
 
+            new_state = (new_pos[0],new_pos[1],new_cost)
             new_path = path[:]+[new_state]
             if (cell in accepted):
                 queue.append(new_path)
@@ -95,19 +101,26 @@ def path_find_full(target,accepted,player_p=None):
     return None
 
 from collections import namedtuple 
-PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_raft'))
-GridState = namedtuple('GridState', ('picked_stones', 'placed_stones'))
+PlayerState = namedtuple('PlayerState', ('x','y','stones','stones_hash','has_key','has_axe','has_raft','on_water'))
+GridState = namedtuple('GridState', ('picked_stones', 'placed_stones', 'unlocked_doors', 'cut_trees'))
 
 #Use BFS to brute force a solution
 def path_find_solve(target, last_player_state=None, last_grid_state=None):
     visited = set()
 
+    print(last_player_state)
+
     start = PlayerState(player.x, player.y,
                         player.stones,
                         0,
                         player.has_key,
-                        player.has_raft) if (last_player_state is None) else last_player_state
-    grid_start = GridState(frozenset(),frozenset()) if (last_grid_state is None) else last_grid_state
+                        player.has_axe,
+                        player.has_raft,
+                        player.on_water) if (last_player_state is None) else last_player_state
+    grid_start = GridState(frozenset(),
+                           frozenset(),
+                           frozenset(),
+                           frozenset()) if (last_grid_state is None) else last_grid_state
     queue = [([start],grid_start)]
 
     hashc = lambda previous_hash, new_pos: hash((previous_hash, hash(new_pos)))
@@ -129,18 +142,44 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
             new_player_state = player_state._replace(x=new_pos[0],y=new_pos[1])
             new_picked_stones = set(grid_state.picked_stones)
             new_placed_stones = set(grid_state.placed_stones)
+            new_unlocked_doors = set(grid_state.unlocked_doors)
+            new_cut_trees = set(grid_state.cut_trees)
 
-            if (cell == 'o'):
+            if (cell == ' '):
+                if (new_player_state.on_water):
+                    new_player_state = new_player_state._replace(on_water=False,
+                                                                 has_raft=False)
+            elif (cell == 'o'):
                 if (not new_pos in new_picked_stones):
                     new_player_state = new_player_state._replace(stones=player_state.stones+1)
                     new_picked_stones.add(new_pos)
             elif (cell == '~'): 
-                if (not new_pos in new_placed_stones):
-                    new_player_state = new_player_state._replace(stones=player_state.stones-1,
-                                                                 stones_hash=hashc(player_state.stones_hash, new_pos))
-                    if (new_player_state.stones < 0):
-                        continue
-                    new_placed_stones.add(new_pos)
+                    if (new_player_state.has_raft):
+                        new_player_state._replace(on_water=True,
+                                                  has_raft=False)
+                    else:
+                        if (not new_pos in new_placed_stones):
+                            new_player_state = new_player_state._replace(stones=player_state.stones-1,
+                                                                         stones_hash=hashc(player_state.stones_hash, new_pos))
+                            new_placed_stones.add(new_pos)
+
+                        if (new_player_state.stones < 0):
+                            continue
+
+            elif (cell == 'k'):
+                new_player_state = new_player_state._replace(has_key=True)
+            elif (cell == '-'):
+                if (not new_player_state.has_key and not new_pos in new_unlocked_doors):
+                    continue
+                new_player_state = new_player_state._replace(has_key=False)
+                new_unlocked_doors.add(new_pos)
+            elif (cell == 'a'):
+                new_player_state = new_player_state._replace(has_axe=True)
+            elif (cell == 'T'):
+                if (new_pos in new_cut_trees):
+                    continue
+                new_player_state = new_player_state._replace(has_raft=True)
+                new_cut_trees.add(new_pos)
             elif (cell == '.' or 
                   cell == 'X' or
                   cell == '*'):
@@ -151,7 +190,9 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
             visited.add(new_player_state)
 
             new_grid_state = GridState(picked_stones=frozenset(new_picked_stones),
-                                       placed_stones=frozenset(new_placed_stones))
+                                       placed_stones=frozenset(new_placed_stones),
+                                       unlocked_doors=frozenset(new_unlocked_doors),
+                                       cut_trees=frozenset(new_cut_trees))
 
             new_path = path[:]+[new_player_state]
             queue.append((new_path,new_grid_state))
@@ -174,6 +215,13 @@ def path_to_commands(path, direction):
         direction = direction_translation[raw_direction]
 
         commands += Direction.difference(current_direction, direction)
+
+        cell = grid.safe_get(path[i])
+        if (cell == 'T'):
+            commands += 'C'
+        if (cell == '-'):
+            commands += 'U'
+
         commands += 'F'
         current_direction = direction
 
@@ -183,16 +231,18 @@ def explore():
     print("Exploring")
 
     #Find all the unknowns and sort them by distance from the player
-    unknowns = [(x,y) for y,line in enumerate(grid) for x,v in enumerate(line) if v == 'X']
-    unknowns = sorted(unknowns, key=lambda x: abs(x[0]-player.x)+abs(x[1]-player.y))
+    unknowns = find_all_closest_item('X')
     if (player.target is not None and grid.safe_get(player.target) == 'X'):
         unknowns.insert(0,player.target)
 
     #Check if we can reach one of the unknowns
-    accepted = [' ','a','k','o','O','X']
+    accepted = [' ','a','k','o','O']
+    if (player.has_raft):
+        accepted.append('~')
+
     for (ux,uy) in unknowns:
         for coord in [(ux+x,uy+y) for x in range(-2,3) for y in range(-2,3)]:
-            if (grid.safe_get(coord) != ' '):
+            if (grid.safe_get(coord) not in accepted):
                 continue
 
             path_list = path_find_full(coord,accepted)
@@ -203,9 +253,43 @@ def explore():
 
             print("Going towards",coord)
             player.target = coord;
-            return path_to_commands(path_list,player.direction),State.EXPLORE
 
-    return [1,2,3],State.GOTO_TREASURE
+            commands = path_to_commands(path_list,player.direction)
+            return commands,State.EXPLORE
+
+    return [1,2,3],State.GOTO_AXE
+
+def axe():
+    print("Axing")
+
+    accepted = [' ','k','o','O','a']
+
+    axes = find_all_closest_item('a')
+    axe_path = None
+    for axe in axes:
+        axe_path = path_find_full(tree,accepted)
+        if (axe_path is not None):
+            break
+    if (axe_path is None):
+        return None,State.GOTO_TREE
+
+    return path_to_commands(axe_path,player.direction),State.GOTO_TREE
+
+def tree():
+    print("Treeing")
+
+    accepted = [' ','k','o','O','T']
+
+    trees = find_all_closest_item('T')
+    tree_path = None
+    for tree in trees:
+        tree_path = path_find_full(tree,accepted)
+        if (tree_path is not None):
+            break
+    if (tree_path is None):
+        return None,State.GOTO_TREASURE
+
+    return path_to_commands(tree_path,player.direction),State.EXPLORE
 
 def can_win():
     global player
@@ -242,8 +326,16 @@ def get_actions():
     #    commands,state = explore()
     #    commands = commands[0:1]
 
-    commands,state = explore()
-    commands = commands[0:1]
+    global state
+    if (state == State.INITIAL):
+        state = State.EXPLORE
+    if (state == State.EXPLORE):
+        commands,state = explore()
+        commands = commands[0:1]
+    if (state == State.GOTO_AXE):
+        commands,state = axe()
+    if (state == State.GOTO_TREE):
+        commands,state = tree()
     if (state == State.GOTO_TREASURE):
         commands,state = can_win()
 
@@ -261,6 +353,7 @@ def update(command, view):
     elif (command == 'R'):
         player.right()
     elif (command == 'C'):
+        print("CUTTTTTTTINNNNNG")
         player.cut()
 
     #Check if the grid needs to be expanded

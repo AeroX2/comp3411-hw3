@@ -82,6 +82,7 @@ class State(Enum):
     GOTO_KEY = auto()
     GOTO_AXE = auto()
     GOTO_STONE = auto()
+    GOTO_TREE = auto()
     GO_HOME = auto()
     PANIC = auto()
 
