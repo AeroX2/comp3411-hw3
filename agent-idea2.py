@@ -106,14 +106,15 @@ PlayerState = namedtuple('PlayerState', ('x','y',
                                          'has_key',
                                          'has_axe',
                                          'has_raft',
-                                         'on_water'))
+                                         'on_water',
+                                         'destinations_reached'))
 GridState = namedtuple('GridState', ('picked_stones',
                                      'placed_stones',
                                      'unlocked_doors',
                                      'cut_trees'))
 
 #Use BFS to brute force a solution
-def path_find_solve(target, last_player_state=None, last_grid_state=None):
+def path_find_solve(destinations, last_player_state=None, last_grid_state=None):
     visited = set()
 
     start = PlayerState(player.x, player.y,
@@ -122,7 +123,8 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
                         player.has_key,
                         player.has_axe,
                         player.has_raft,
-                        player.on_water) if (last_player_state is None) else last_player_state
+                        player.on_water,
+                        0) if (last_player_state is None) else last_player_state
     grid_start = GridState(frozenset(),
                            frozenset(),
                            frozenset(),
@@ -152,49 +154,63 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
             new_unlocked_doors = set(grid_state.unlocked_doors)
             new_cut_trees = set(grid_state.cut_trees)
 
-            if (cell == ' '):
-                if (player_state.on_water):
-                    new_player_state = new_player_state._replace(on_water=False,
-                                                                 has_raft=False)
-            elif (cell == 'o'):
+
+            if (cell != '~' and player_state.on_water):
+                new_player_state = new_player_state._replace(on_water=False,
+                                                             has_raft=False)
+
+            if (cell == 'o'):
                 if (not new_pos in new_picked_stones):
                     new_player_state = new_player_state._replace(stones=player_state.stones+1)
                     new_picked_stones.add(new_pos)
             elif (cell == '~'): 
-                    if (player_state.has_raft):
-                        new_player_state._replace(on_water=True,
-                                                  has_raft=False)
-                    else:
-                        if (not new_pos in new_placed_stones):
-                            new_player_state = new_player_state._replace(stones=player_state.stones-1,
-                                                                         stones_hash=hashc(player_state.stones_hash, new_pos))
-                            new_placed_stones.add(new_pos)
+                if (player_state.stones > 0):
+                    #print("Placing stone")
+                    if (not new_pos in new_placed_stones):
+                        new_player_state = new_player_state._replace(stones=player_state.stones-1,
+                                                                     stones_hash=hashc(player_state.stones_hash, new_pos))
+                        new_placed_stones.add(new_pos)
+                        #print(new_placed_stones)
 
-                        if (new_player_state.stones < 0):
-                            continue
-
+                    if (new_player_state.stones < 0):
+                        continue
+                elif (player_state.has_raft):
+                    #print("Using raft at",new_pos)
+                    new_player_state = new_player_state._replace(on_water=True)
+                else:
+                    continue
             elif (cell == 'k'):
+                #print("Found key")
                 new_player_state = new_player_state._replace(has_key=True)
             elif (cell == '-'):
                 if (not player_state.has_key and not new_pos in new_unlocked_doors):
                     continue
+                #print("Unlocked door")
                 new_player_state = new_player_state._replace(has_key=False)
                 new_unlocked_doors.add(new_pos)
             elif (cell == 'a'):
                 new_player_state = new_player_state._replace(has_axe=True)
             elif (cell == 'T'):
-                continue
+                #print("Tree")
+                #print(player_state)
+                #print(new_player_state)
 
                 if (not player_state.has_axe):
                     continue
-                if (new_pos in new_cut_trees):
+                if (new_player_state.on_water):
                     continue
-                new_player_state = new_player_state._replace(has_raft=True)
-                new_cut_trees.add(new_pos)
+                if (not new_pos in new_cut_trees):
+                    new_player_state = new_player_state._replace(has_raft=True)
+                    new_cut_trees.add(new_pos)
             elif (cell == '.' or 
                   cell == 'X' or
                   cell == '*'):
                 continue
+
+            if (new_pos == destinations[player_state.destinations_reached]):
+                new_player_state = new_player_state._replace(destinations_reached=player_state.destinations_reached+1)
+                #print("Destination reached!")
+                #print(new_player_state)
 
             if (new_player_state in visited):
                 continue
@@ -209,8 +225,8 @@ def path_find_solve(target, last_player_state=None, last_grid_state=None):
             queue.append((new_path,new_grid_state))
 
             #Check if we have reached the target
-            if (new_pos == target):
-                return list(map(lambda p: (p.x, p.y), new_path)),new_path[-1],new_grid_state
+            if (new_player_state.destinations_reached >= len(destinations)):
+                return list(map(lambda p: (p.x, p.y), new_path)),new_player_state,new_grid_state
 
         #queue = sorted(queue, key=lambda x: x[-1][-1])
     return None,None,None
@@ -241,12 +257,12 @@ def path_to_commands(path, direction):
 def explore():
     print("Exploring")
 
-    accepted = [' ','a','k','o','O']
+    accepted = [' ','a','k','o','O','$']
     if (player.has_axe):
         accepted.append('T')
     if (player.has_key):
         accepted.append('-')
-    if (player.has_raft):
+    if (player.has_raft and not player.on_water):
         accepted.append('~')
     if (player.on_raft):
         accepted = ['~']
@@ -257,10 +273,10 @@ def explore():
         grid.safe_get(player.target) not in accepted):
         player.target = None
     if (player.target is not None):
-        print("Using previous")
+        #print("Using previous")
 
         #unknowns.insert(0,player.target)
-        path_list = path_find_full(player.target,accepted)
+        path_list = path_find_full(player.target,accepted+['X'])
         if (path_list is not None):
             commands = path_to_commands(path_list,player.direction)
             return commands,State.EXPLORE
@@ -271,7 +287,7 @@ def explore():
             if (grid.safe_get(coord) not in accepted):
                 continue
 
-            path_list = path_find_full(coord,accepted)
+            path_list = path_find_full(coord,accepted+['X'])
 
             #Path doesn't exist
             if (path_list is None):
@@ -280,13 +296,13 @@ def explore():
             #print(unknowns)
             print("Going towards:",coord)
             print("Because:",(ux,uy))
-            print("Path list:",path_list)
+            #print("Path list:",path_list)
 
             player.target = coord
             commands = path_to_commands(path_list,player.direction)
             return commands,State.EXPLORE
 
-    return [0],State.GOTO_AXE
+    return None,State.GOTO_AXE
 
 def axe():
     print("Axing")
@@ -322,33 +338,49 @@ def tree():
 
     return path_to_commands(tree_path,player.direction),State.EXPLORE
 
+def stone():
+    print("Stoning")
+
+    accepted = [' ','k','o','O']
+    stones = find_all_closest_item('o')
+    stone_path = None
+
+    for stone in stones:
+        stone_path = path_find_full(stone,accepted)
+        if (stone_path is not None):
+            break
+    if (stone_path is None):
+        return None,State.GOTO_TREASURE
+    return path_to_commands(stone_path,player.direction),State.EXPLORE
+
 def can_win():
     global player
     print("Checking if we can win")
 
     treasure = find_item(grid,'$')
-    if (treasure is None and not player.has_treasure):
+    if (treasure is None):
         return None,None
-
     print("Found treasure")
-    key_path,last_player_state,last_grid_state = path_find_solve(treasure)
-    if (key_path is None):
-        print("Couldn't reach treasure")
-        return None,None
-    print("Can get treasure")
 
-    home = (player.ix, player.iy)
-    home_path,_,_ = path_find_solve(home, last_player_state, last_grid_state)
+    home = (player.ix,player.iy)
+    if (not player.has_treasure):
+        full_path,_,_ = path_find_solve([treasure,home])
+        if (full_path is None):
+            print("Couldn't reach treasure or home")
+            return None,None
+        print("Can get treasure and back home")
+
+        full_commands = path_to_commands(full_path,player.direction)
+        return full_commands,None
+
+    home_path,_,_ = path_find_solve([home])
     if (home_path is None):
         print("Couldn't get back home")
         return None,None
     print("Can get back home")
 
-    new_direction = direction_translation[(key_path[-1][0]-key_path[-2][0],key_path[-1][1]-key_path[-2][1])]
-    key_commands = path_to_commands(key_path,player.direction)
     home_commands = path_to_commands(home_path,new_direction)
-    
-    return key_commands+home_commands,None
+    return home_commands,None
 
 #Function to take get action from AI or user
 def get_actions():
@@ -358,17 +390,27 @@ def get_actions():
     #    commands = commands[0:1]
 
     global state
-    if (state == State.INITIAL):
-        state = State.EXPLORE
-    if (state == State.EXPLORE):
-        commands,state = explore()
+
+    #commands,state = axe()
+    #if (commands is not None):
+    #    return commands
+
+    #commands,state = tree()
+    #if (commands is not None):
+    #    return commands
+
+    commands,state = stone()
+    if (commands is not None):
+        return commands
+
+    commands,state = explore()
+    if (commands is not None):
         commands = commands[0:1]
-    if (state == State.GOTO_AXE):
-        commands,state = axe()
-    if (state == State.GOTO_TREE):
-        commands,state = tree()
-    if (state == State.GOTO_TREASURE):
-        commands,state = can_win()
+        return commands
+
+    commands,state = can_win()
+    if (commands is not None):
+        return commands
 
     return commands
 
