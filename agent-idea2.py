@@ -164,21 +164,17 @@ def path_find_solve(destinations, last_player_state=None, last_grid_state=None):
                     new_player_state = new_player_state._replace(stones=player_state.stones+1)
                     new_picked_stones.add(new_pos)
             elif (cell == '~'): 
-                if (player_state.stones > 0):
-                    #print("Placing stone")
-                    if (not new_pos in new_placed_stones):
+                if (not new_pos in new_placed_stones):
+                    if (player_state.stones > 0):
                         new_player_state = new_player_state._replace(stones=player_state.stones-1,
                                                                      stones_hash=hashc(player_state.stones_hash, new_pos))
                         new_placed_stones.add(new_pos)
-                        #print(new_placed_stones)
 
-                    if (new_player_state.stones < 0):
+                    elif (player_state.has_raft):
+                        #print("Using raft at",new_pos)
+                        new_player_state = new_player_state._replace(on_water=True)
+                    else:
                         continue
-                elif (player_state.has_raft):
-                    #print("Using raft at",new_pos)
-                    new_player_state = new_player_state._replace(on_water=True)
-                else:
-                    continue
             elif (cell == 'k'):
                 #print("Found key")
                 new_player_state = new_player_state._replace(has_key=True)
@@ -226,10 +222,11 @@ def path_find_solve(destinations, last_player_state=None, last_grid_state=None):
 
             #Check if we have reached the target
             if (new_player_state.destinations_reached >= len(destinations)):
-                return list(map(lambda p: (p.x, p.y), new_path)),new_player_state,new_grid_state
+                #print(new_path)
+                return list(map(lambda p: (p.x, p.y), new_path)) #,new_player_state,new_grid_state
 
-        #queue = sorted(queue, key=lambda x: x[-1][-1])
-    return None,None,None
+        #queue = sorted(queue, key=lambda x: -x[0][-1].destinations_reached)
+    return None
 
 #Convert a path to a command list
 def path_to_commands(path, direction):
@@ -364,16 +361,17 @@ def can_win():
 
     home = (player.ix,player.iy)
     if (not player.has_treasure):
-        full_path,_,_ = path_find_solve([treasure,home])
+        full_path = path_find_solve([treasure,home])
         if (full_path is None):
             print("Couldn't reach treasure or home")
             return None,None
         print("Can get treasure and back home")
+        print(full_path)
 
         full_commands = path_to_commands(full_path,player.direction)
         return full_commands,None
 
-    home_path,_,_ = path_find_solve([home])
+    home_path = path_find_solve([home])
     if (home_path is None):
         print("Couldn't get back home")
         return None,None
